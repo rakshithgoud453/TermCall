@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -178,6 +179,7 @@ func NewHostSession(port int) (*Session, string, error) {
 			if err == nil {
 				s.setCrypto(cSess, "Peer", raddr.String())
 				s.connected.Store(true)
+				trans.MarkConnected(raddr)
 			}
 		}
 	}, nil)
@@ -376,7 +378,21 @@ func (s *Session) setupNetworkPipeline() {
 		},
 		// onHangup
 		func() {
-			s.HangUp()
+			s.connected.Store(false)
+			s.stateMu.Lock()
+			if s.peerName != "" && !strings.Contains(s.peerName, "Left") && !strings.Contains(s.peerName, "Disconnected") {
+				s.peerName = s.peerName + " (Left)"
+			} else if s.peerName == "" {
+				s.peerName = "Peer Left"
+			}
+			s.stateMu.Unlock()
+			s.audioEngine.Stop()
+			s.hangupMu.Lock()
+			onH := s.onHangup
+			s.hangupMu.Unlock()
+			if onH != nil {
+				onH()
+			}
 		},
 		// onMute
 		func(muted bool) {
@@ -540,12 +556,16 @@ func (s *Session) HangUp() {
 	s.hangupMu.Lock()
 	defer s.hangupMu.Unlock()
 
+	s.connected.Store(false)
 	s.cancel()
 	s.audioEngine.Close()
 	if s.transport != nil {
 		s.transport.Close()
 	}
 	s.stateMu.Lock()
+	if s.peerName != "" && !strings.Contains(s.peerName, "Disconnected") && !strings.Contains(s.peerName, "Left") {
+		s.peerName = s.peerName + " (Disconnected)"
+	}
 	if s.crypto != nil {
 		s.crypto.Close()
 	}

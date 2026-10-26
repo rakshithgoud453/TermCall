@@ -37,6 +37,7 @@ type Transport struct {
 	packetsSent     atomic.Uint64
 	packetsReceived atomic.Uint64
 	rttMs           atomic.Int64 // in milliseconds
+	lastRxTime      atomic.Int64 // timestamp in milliseconds
 
 	// Handshake callbacks & Keys
 	handlerMu      sync.RWMutex
@@ -243,6 +244,7 @@ func (t *Transport) PunchHoleCandidates(ctx context.Context, localPubKey []byte,
 			return errors.New("NAT hole-punching timed out")
 		case <-t.handshakeCh:
 			t.connected.Store(true)
+			t.lastRxTime.Store(time.Now().UnixMilli())
 			go t.pingLoop(ctx)
 			return nil
 		case <-ticker.C:
@@ -255,6 +257,7 @@ func (t *Transport) PunchHoleCandidates(ctx context.Context, localPubKey []byte,
 func (t *Transport) MarkConnected(remote *net.UDPAddr) {
 	t.SetRemoteAddr(remote)
 	t.connected.Store(true)
+	t.lastRxTime.Store(time.Now().UnixMilli())
 }
 
 // IsConnected returns whether direct P2P link is established
@@ -297,6 +300,7 @@ func (t *Transport) readLoop() {
 			continue
 		}
 
+		t.lastRxTime.Store(time.Now().UnixMilli())
 		t.packetsReceived.Add(1)
 
 		switch packet.Type {
@@ -305,6 +309,8 @@ func (t *Transport) readLoop() {
 			if t.RemoteAddr() == nil {
 				t.SetRemoteAddr(raddr)
 			}
+			t.connected.Store(true)
+			t.lastRxTime.Store(time.Now().UnixMilli())
 			t.handlerMu.RLock()
 			localKey := t.localPubKey
 			onHs := t.onHandshake
@@ -331,6 +337,8 @@ func (t *Transport) readLoop() {
 			if t.RemoteAddr() == nil {
 				t.SetRemoteAddr(raddr)
 			}
+			t.connected.Store(true)
+			t.lastRxTime.Store(time.Now().UnixMilli())
 			t.handlerMu.RLock()
 			onAck := t.onHandshakeAck
 			t.handlerMu.RUnlock()
@@ -384,6 +392,7 @@ func (t *Transport) readLoop() {
 			}
 
 		case protocol.TypeHangup:
+			t.connected.Store(false)
 			t.handlerMu.RLock()
 			onH := t.onHangup
 			t.handlerMu.RUnlock()
@@ -394,7 +403,7 @@ func (t *Transport) readLoop() {
 	}
 }
 
-// pingLoop sends periodic keepalive probes to measure RTT latency
+// pingLoop sends periodic keepalive probes to measure RTT latency and detect dead peers
 func (t *Transport) pingLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -404,9 +413,26 @@ func (t *Transport) pingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if t.closed.Load() || !t.connected.Load() {
+			if t.closed.Load() {
 				return
 			}
+			if !t.connected.Load() {
+				continue
+			}
+
+			// Inactivity timeout: if peer sent nothing for 4s, connection was lost / peer terminated
+			lastRx := t.lastRxTime.Load()
+			if lastRx > 0 && time.Since(time.UnixMilli(lastRx)) > 4*time.Second {
+				t.connected.Store(false)
+				t.handlerMu.RLock()
+				onH := t.onHangup
+				t.handlerMu.RUnlock()
+				if onH != nil {
+					onH()
+				}
+				return
+			}
+
 			ping := &protocol.Packet{
 				Type: protocol.TypePing,
 				Seq:  t.NextSeq(),
@@ -419,15 +445,24 @@ func (t *Transport) pingLoop(ctx context.Context) {
 // Close closes the UDP socket
 func (t *Transport) Close() error {
 	if !t.closed.Swap(true) {
-		// Send hangup notice to peer if connected
-		if t.connected.Load() && t.RemoteAddr() != nil {
+		// Send hangup notice burst directly to peer if connected
+		target := t.RemoteAddr()
+		if t.connected.Load() && target != nil && t.conn != nil {
 			hangup := &protocol.Packet{
 				Type: protocol.TypeHangup,
 				Seq:  t.NextSeq(),
 			}
-			_ = t.SendPacket(hangup)
+			data := hangup.Encode()
+			normTarget := normalizeAddr(target)
+			// Send 3 packets in burst to ensure UDP delivery
+			for i := 0; i < 3; i++ {
+				_, _ = t.conn.WriteToUDP(data, normTarget)
+			}
 		}
-		return t.conn.Close()
+		t.connected.Store(false)
+		if t.conn != nil {
+			return t.conn.Close()
+		}
 	}
 	return nil
 }

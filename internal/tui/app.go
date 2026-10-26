@@ -146,6 +146,10 @@ func (m Model) View() string {
 		Bold(true).
 		Foreground(themeOrange)
 
+	statusDisconnectedStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FF3366"))
+
 	labelStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#EEEEEE")).
@@ -194,9 +198,13 @@ func (m Model) View() string {
 	// Call Metadata
 	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("PEER:"), valueStyle.Render(fmt.Sprintf("%s (%s)", peerName, peerEndpoint))))
 
-	statusBadge := statusWaitingStyle.Render("○ Connecting / Punching NAT...")
+	var statusBadge string
 	if connected {
 		statusBadge = statusConnectedStyle.Render("● Connected (Direct P2P, Zero Relay)")
+	} else if strings.Contains(strings.ToLower(peerName), "left") || strings.Contains(strings.ToLower(peerName), "disconnect") {
+		statusBadge = statusDisconnectedStyle.Render("○ Peer Disconnected / Call Ended")
+	} else {
+		statusBadge = statusWaitingStyle.Render("○ Connecting / Punching NAT...")
 	}
 	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("STATUS:"), statusBadge))
 
@@ -250,6 +258,8 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	if time.Since(m.statusTime) < 3*time.Second && m.statusMsg != "" {
 		b.WriteString("  " + lipgloss.NewStyle().Foreground(themeCyan).Bold(true).Render("★ "+m.statusMsg) + "\n")
+	} else if !connected && (strings.Contains(strings.ToLower(peerName), "left") || strings.Contains(strings.ToLower(peerName), "disconnect")) {
+		b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FF3366")).Bold(true).Render("⚠️  Peer disconnected or left call. Press [Q] or [ESC] to exit.") + "\n")
 	} else {
 		b.WriteString("  " + lipgloss.NewStyle().Foreground(themeGray).Render("🎧 Tip: Use headphones for optimal, echo-free conversation.") + "\n")
 	}

@@ -346,6 +346,8 @@ func (e *Engine) Stop() {
 	if !e.running.Swap(false) {
 		return
 	}
+	e.storeLevels(&e.micDBNorm, -60.0, 0.0)
+	e.storeLevels(&e.spkDBNorm, -60.0, 0.0)
 	if e.captureDevice != nil {
 		e.captureDevice.Stop()
 		e.captureDevice.Uninit()
