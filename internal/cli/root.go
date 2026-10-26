@@ -15,7 +15,7 @@ import (
 	"github.com/rakshithgoud453/termcall/internal/tui"
 )
 
-var Version = "0.2.0"
+var Version = "0.2.1"
 
 // RootCmd represents the base command
 var RootCmd = &cobra.Command{

@@ -34,7 +34,7 @@ func tickCmd() tea.Cmd {
 }
 
 // Version is dynamically displayed in the TUI header
-var Version = "0.2.0"
+var Version = "0.2.1"
 
 // Model is the Bubble Tea TUI state
 type Model struct {

@@ -1,7 +1,7 @@
 BINARY_NAME=termcall
 CMD_PATH=./cmd/termcall
 BIN_DIR=bin
-VERSION ?= 0.2.0
+VERSION ?= 0.2.1
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -X github.com/rakshithgoud453/termcall/internal/cli.Version=$(VERSION) -s -w
 
