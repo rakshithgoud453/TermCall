@@ -1,6 +1,9 @@
 BINARY_NAME=termcall
 CMD_PATH=./cmd/termcall
 BIN_DIR=bin
+VERSION ?= 0.1.0
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS := -X github.com/rakshithgoud453/termcall/internal/cli.Version=$(VERSION) -s -w
 
 .PHONY: all build install test clean loopback devices stun help
 
@@ -9,12 +12,12 @@ all: build
 ## build: Compiles the TermCall standalone binary
 build:
 	@mkdir -p $(BIN_DIR)
-	go build -ldflags="-s -w" -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
+	go build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
 	@echo "✔ Binary built at $(BIN_DIR)/$(BINARY_NAME)"
 
 ## install: Compiles and installs termcall to $(GOPATH)/bin
 install:
-	go install -ldflags="-s -w" $(CMD_PATH)
+	go install -ldflags="$(LDFLAGS)" $(CMD_PATH)
 	@echo "✔ Installed termcall to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
 ## test: Runs all unit and integration tests with race detector

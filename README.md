@@ -183,6 +183,20 @@ TermCall requires **zero external signaling servers** to pair two callers. The r
 
 ---
 
+## 🍺 Installation via Homebrew (macOS & Linux)
+
+The recommended installation method for macOS and Linux:
+
+```bash
+# Tap the repository
+brew tap rakshithgoud453/tap
+
+# Install TermCall
+brew install termcall
+```
+
+---
+
 ## 🚀 Quickstart & Commands
 
 ### 1. Test Hardware Audio Locally (Loopback Mode)

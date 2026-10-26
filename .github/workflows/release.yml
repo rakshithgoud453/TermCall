@@ -1,0 +1,76 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release Artifacts
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install macOS Dependencies
+        run: brew install opus opusfile
+
+      - name: Run Unit Tests
+        run: go test -v ./...
+
+      - name: Build Release Binary
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          mkdir -p dist
+          go build -ldflags "-X github.com/rakshithgoud453/termcall/internal/cli.Version=${VERSION} -w -s" -o dist/termcall ./cmd/termcall
+          cd dist
+          tar -czvf termcall-darwin-arm64.tar.gz termcall
+          shasum -a 256 termcall-darwin-arm64.tar.gz > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Auto-Update Homebrew Formula
+        if: success()
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          SHA256=$(curl -sL https://github.com/rakshithgoud453/TermCall/archive/refs/tags/${VERSION}.tar.gz | shasum -a 256 | awk '{print $1}')
+          
+          echo "Updating Formula/termcall.rb to version ${VERSION} with sha256 ${SHA256}"
+          sed -i.bak "s|url \".*\"|url \"https://github.com/rakshithgoud453/TermCall/archive/refs/tags/${VERSION}.tar.gz\"|" Formula/termcall.rb
+          sed -i.bak "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/termcall.rb
+          rm -f Formula/termcall.rb.bak
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/termcall.rb
+          git commit -m "chore(release): bump Homebrew formula to ${VERSION}" || true
+          git push origin HEAD:main || true
+
+          if [ -n "$TAP_TOKEN" ]; then
+            git clone https://x-access-token:${TAP_TOKEN}@github.com/rakshithgoud453/homebrew-tap.git tap_repo
+            mkdir -p tap_repo/Formula
+            cp Formula/termcall.rb tap_repo/Formula/termcall.rb
+            cd tap_repo
+            git add Formula/termcall.rb
+            git commit -m "bump termcall formula to ${VERSION}"
+            git push origin main
+          fi
