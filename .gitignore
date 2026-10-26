@@ -1,7 +1,6 @@
 # Binaries
 bin/
 /termcall
-/converze-match
 *.exe
 *.test
 *.out
