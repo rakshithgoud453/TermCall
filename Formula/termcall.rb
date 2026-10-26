@@ -2,7 +2,7 @@ class Termcall < Formula
   desc "Direct, peer-to-peer encrypted terminal voice link in Go"
   homepage "https://github.com/rakshithgoud453/TermCall"
   url "https://github.com/rakshithgoud453/TermCall/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "0d5f1d8ac8a8600c1daffe57bbebaa5e8b8f76675343a4435f1cbca8ebf270f2"
+  sha256 "1423ad23acadd8268e73a67b3fbdf3d4e085e336bd218fdd2eb4da2a93acf39f"
   license "MIT"
   head "https://github.com/rakshithgoud453/TermCall.git", branch: "main"
 
