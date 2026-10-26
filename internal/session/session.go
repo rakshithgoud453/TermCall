@@ -35,7 +35,8 @@ type Session struct {
 	transport    *network.Transport
 	jitterBuffer *jitter.JitterBuffer
 
-	role crypto.Role
+	stateMu sync.RWMutex
+	role    crypto.Role
 
 	peerName     string
 	peerEndpoint string
@@ -172,12 +173,10 @@ func NewHostSession(port int) (*Session, string, error) {
 
 	// Host establishes crypto session as soon as peer sends TypeHandshake with their public key
 	trans.SetHandshakeHandlers(func(peerPubKey []byte, raddr *net.UDPAddr) {
-		if len(peerPubKey) == 32 && s.crypto == nil {
+		if len(peerPubKey) == 32 && s.getCrypto() == nil {
 			cSess, err := crypto.NewCryptoSession(s.keyPair, peerPubKey, crypto.RoleHost)
 			if err == nil {
-				s.crypto = cSess
-				s.peerName = "Peer"
-				s.peerEndpoint = raddr.String()
+				s.setCrypto(cSess, "Peer", raddr.String())
 				s.connected.Store(true)
 			}
 		}
@@ -261,7 +260,7 @@ func NewJoinSession(roomToken string) (*Session, error) {
 		if punchErr == nil {
 			s.connected.Store(true)
 			if trans.RemoteAddr() != nil {
-				s.peerEndpoint = trans.RemoteAddr().String()
+				s.setPeerEndpoint(trans.RemoteAddr().String())
 			}
 		}
 	}()
@@ -317,7 +316,8 @@ func (s *Session) setupLoopbackPipeline() {
 func (s *Session) setupNetworkPipeline() {
 	// Capture Callback: Mic PCM -> Opus Encode -> ChaCha20 Encrypt -> SendPacket
 	s.audioEngine.SetCaptureHandler(func(pcm []int16) {
-		if !s.connected.Load() || s.crypto == nil {
+		cr := s.getCrypto()
+		if !s.connected.Load() || cr == nil {
 			return
 		}
 
@@ -328,7 +328,7 @@ func (s *Session) setupNetworkPipeline() {
 
 		seq := s.transport.NextSeq()
 		aad := []byte{protocol.MagicByte0, protocol.MagicByte1, protocol.Version1, byte(protocol.TypeAudio)}
-		ciphertext := s.crypto.Encrypt(seq, encoded, aad)
+		ciphertext := cr.Encrypt(seq, encoded, aad)
 
 		pkt := &protocol.Packet{
 			Type:    protocol.TypeAudio,
@@ -363,11 +363,12 @@ func (s *Session) setupNetworkPipeline() {
 	s.transport.SetHandlers(
 		// onAudio
 		func(packet *protocol.Packet) {
-			if s.crypto == nil {
+			cr := s.getCrypto()
+			if cr == nil {
 				return
 			}
 			aad := []byte{protocol.MagicByte0, protocol.MagicByte1, protocol.Version1, byte(protocol.TypeAudio)}
-			decrypted, err := s.crypto.Decrypt(packet.Seq, packet.Payload, aad)
+			decrypted, err := cr.Decrypt(packet.Seq, packet.Payload, aad)
 			if err != nil {
 				return // Dropped tampered or replayed packet
 			}
@@ -392,9 +393,35 @@ func (s *Session) Start() error {
 	return s.audioEngine.Start()
 }
 
+func (s *Session) getCrypto() *crypto.CryptoSession {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.crypto
+}
+
+func (s *Session) setCrypto(cSess *crypto.CryptoSession, peerName, peerEndpoint string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.crypto = cSess
+	if peerName != "" {
+		s.peerName = peerName
+	}
+	if peerEndpoint != "" {
+		s.peerEndpoint = peerEndpoint
+	}
+}
+
+func (s *Session) setPeerEndpoint(endpoint string) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.peerEndpoint = endpoint
+}
+
 // SessionState interface methods for the TUI:
 
 func (s *Session) PeerName() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 	return s.peerName
 }
 
@@ -402,6 +429,8 @@ func (s *Session) PeerEndpoint() string {
 	if s.transport != nil && s.transport.RemoteAddr() != nil {
 		return s.transport.RemoteAddr().String()
 	}
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 	return s.peerEndpoint
 }
 
@@ -475,9 +504,11 @@ func (s *Session) HangUp() {
 	if s.transport != nil {
 		s.transport.Close()
 	}
+	s.stateMu.Lock()
 	if s.crypto != nil {
 		s.crypto.Close()
 	}
+	s.stateMu.Unlock()
 	if s.onHangup != nil {
 		s.onHangup()
 	}

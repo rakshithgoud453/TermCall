@@ -39,14 +39,15 @@ type Transport struct {
 	rttMs           atomic.Int64 // in milliseconds
 
 	// Handshake callbacks & Keys
+	handlerMu      sync.RWMutex
 	localPubKey    []byte
 	onHandshake    func(peerPubKey []byte, raddr *net.UDPAddr)
 	onHandshakeAck func(peerPubKey []byte, raddr *net.UDPAddr)
 
 	// Callbacks
-	onAudio   func(packet *protocol.Packet)
-	onHangup  func()
-	onMute    func(muted bool)
+	onAudio  func(packet *protocol.Packet)
+	onHangup func()
+	onMute   func(muted bool)
 
 	startTime time.Time
 }
@@ -115,17 +116,23 @@ func (t *Transport) SetRemoteAddr(addr *net.UDPAddr) {
 
 // SetLocalPublicKey configures the local public key for handshake packet payloads
 func (t *Transport) SetLocalPublicKey(pubKey []byte) {
+	t.handlerMu.Lock()
+	defer t.handlerMu.Unlock()
 	t.localPubKey = pubKey
 }
 
 // SetHandshakeHandlers sets callbacks for peer key exchange during P2P punch
 func (t *Transport) SetHandshakeHandlers(onHandshake func([]byte, *net.UDPAddr), onHandshakeAck func([]byte, *net.UDPAddr)) {
+	t.handlerMu.Lock()
+	defer t.handlerMu.Unlock()
 	t.onHandshake = onHandshake
 	t.onHandshakeAck = onHandshakeAck
 }
 
 // SetHandlers sets callbacks for incoming packets
 func (t *Transport) SetHandlers(onAudio func(*protocol.Packet), onHangup func(), onMute func(bool)) {
+	t.handlerMu.Lock()
+	defer t.handlerMu.Unlock()
 	t.onAudio = onAudio
 	t.onHangup = onHangup
 	t.onMute = onMute
@@ -298,16 +305,21 @@ func (t *Transport) readLoop() {
 			if t.RemoteAddr() == nil {
 				t.SetRemoteAddr(raddr)
 			}
+			t.handlerMu.RLock()
+			localKey := t.localPubKey
+			onHs := t.onHandshake
+			t.handlerMu.RUnlock()
+
 			// Respond with HandshakeAck containing our public key
 			ack := &protocol.Packet{
 				Type:    protocol.TypeHandshakeAck,
 				Seq:     t.NextSeq(),
-				Payload: t.localPubKey,
+				Payload: localKey,
 			}
 			_ = t.SendTo(ack, raddr)
 
-			if t.onHandshake != nil {
-				t.onHandshake(packet.Payload, raddr)
+			if onHs != nil {
+				onHs(packet.Payload, raddr)
 			}
 
 			select {
@@ -319,8 +331,12 @@ func (t *Transport) readLoop() {
 			if t.RemoteAddr() == nil {
 				t.SetRemoteAddr(raddr)
 			}
-			if t.onHandshakeAck != nil {
-				t.onHandshakeAck(packet.Payload, raddr)
+			t.handlerMu.RLock()
+			onAck := t.onHandshakeAck
+			t.handlerMu.RUnlock()
+
+			if onAck != nil {
+				onAck(packet.Payload, raddr)
 			}
 			select {
 			case t.handshakeCh <- struct{}{}:
@@ -352,18 +368,27 @@ func (t *Transport) readLoop() {
 			}
 
 		case protocol.TypeAudio:
-			if t.onAudio != nil {
-				t.onAudio(packet)
+			t.handlerMu.RLock()
+			onAud := t.onAudio
+			t.handlerMu.RUnlock()
+			if onAud != nil {
+				onAud(packet)
 			}
 
 		case protocol.TypeMute:
-			if t.onMute != nil && len(packet.Payload) > 0 {
-				t.onMute(packet.Payload[0] == 1)
+			t.handlerMu.RLock()
+			onM := t.onMute
+			t.handlerMu.RUnlock()
+			if onM != nil && len(packet.Payload) > 0 {
+				onM(packet.Payload[0] == 1)
 			}
 
 		case protocol.TypeHangup:
-			if t.onHangup != nil {
-				t.onHangup()
+			t.handlerMu.RLock()
+			onH := t.onHangup
+			t.handlerMu.RUnlock()
+			if onH != nil {
+				onH()
 			}
 		}
 	}

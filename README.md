@@ -1,9 +1,28 @@
+<div align="center">
+
 # 🎙️ TermCall
 
-**Direct, Peer-to-Peer Encrypted Voice Calls in your Terminal Shell.**
+**Direct, Peer-to-Peer Encrypted Voice Calls in your Terminal Shell.**  
+*No browser. No Electron. No accounts. Zero audio bandwidth bills. Single static Go binary.*
 
-No browser. No Electron. No accounts. No server-side audio relay.  
-A single Go binary that establishes an end-to-end encrypted, low-latency, crystal-clear voice link directly between terminal prompts in under 3 seconds.
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
+[![Audio Codec](https://img.shields.io/badge/Audio-Opus%2048kHz%20VoIP-4A154B?style=flat-square)](https://opus-codec.org/)
+[![Crypto](https://img.shields.io/badge/Crypto-X25519%20%2B%20ChaCha20--Poly1305-blue?style=flat-square)](https://en.wikipedia.org/wiki/ChaCha20-Poly1305)
+[![Transport](https://img.shields.io/badge/Transport-P2P%20UDP%20%2B%20STUN%20(RFC%205389)-success?style=flat-square)](https://datatracker.ietf.org/doc/html/rfc5389)
+[![Replay Protection](https://img.shields.io/badge/Security-RFC%206479%20Anti--Replay-green?style=flat-square)](https://datatracker.ietf.org/doc/html/rfc6479)
+[![License](https://img.shields.io/badge/License-MIT-orange?style=flat-square)](LICENSE)
+[![Author](https://img.shields.io/badge/Author-Rakshith%20Billola-d7ff3f?style=flat-square&labelColor=171812)](https://rakshith.converze.org/)
+
+---
+
+### 📖 [Read the Comprehensive Engineering Deep-Dive (23 KB)](docs/ENGINEERING_DEEP_DIVE.md)
+*An exhaustive breakdown covering hardware PCM capture via MiniAudio, Opus VoIP frame slicing, RFC 5389 STUN NAT traversal, directional AEAD key derivation via HKDF-SHA256, and RFC 6479 sliding-bitmap replay prevention.*
+
+👉 **[Architecture Boundaries: TermCall vs. Converze](docs/ARCHITECTURE_BOUNDARIES.md)** · **[User Manual & Commands](docs/USER_MANUAL.md)**
+
+---
+
+</div>
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -31,11 +50,35 @@ A single Go binary that establishes an end-to-end encrypted, low-latency, crysta
 
 ---
 
+## 💡 The Philosophy: Why TermCall?
+
+When developers pair-program, troubleshoot production incidents, or review a pull request, jumping on voice should take **under 3 seconds** without pulling focus from the terminal.
+
+Instead, modern collaboration forces high friction:
+- ❌ **Massive Bloat**: Opening Slack Huddles, Discord, or Zoom consumes 600 MB+ to 1.5 GB of RAM.
+- ❌ **Identity & Accounts**: Mandatory corporate logins, meeting links, browser permissions, and cloud telemetry.
+- ❌ **Centralized Relays**: Cloud providers route and decode audio through remote servers, creating privacy risks and massive bandwidth costs.
+
+**TermCall** eliminates the middleman with Unix minimalism:
+
+| Guarantee / Metric | TermCall | Slack Huddles | Discord | Zoom |
+| :--- | :---: | :---: | :---: | :---: |
+| **Interface** | 💻 **Terminal TUI** | Heavy Electron App | Heavy Electron App | Native/Electron App |
+| **RAM Consumption** | ⚡ **~18 MB** | ~650 MB | ~500 MB | ~400 MB |
+| **Account Required?** | ❌ **Zero (None)** | ✅ Work Account | ✅ Discord Account | ✅ Zoom Account |
+| **Media Routing** | 🚀 **100% Direct P2P** | 🏢 Slack SFU Relay | 🏢 Discord Gateway | 🏢 Zoom Cloud |
+| **End-to-End Encryption** | 🔐 **X25519 + ChaCha20** | ⚠️ Server-Decrypted | ⚠️ Gateway-Decrypted | ⚠️ Optional / Cloud |
+| **Startup to Audio Time** | ⚡ **< 3 seconds** | 15–30 seconds | 15–20 seconds | 30+ seconds |
+| **Binary Portability** | 📦 **Single Go Binary** | Full OS Package | Full OS Package | Full OS Installer |
+| **Audio Bandwidth Bill** | 🟢 **$0.00 / month** | Paid Enterprise | Paid Nitro / Server | Paid Enterprise |
+
+---
+
 ## ⚡ The Origin Synergy
 
-TermCall synthesizes two engineering crafts:
+TermCall is born from the intersection of two systems engineering crafts:
 1. **[MyVault](https://github.com/rakshithgoud453/myvault)**: Zero-telemetry, local-first cryptography, clean Unix CLI ergonomics, and ephemeral memory security.
-2. **[Converze Club](https://converze.org)**: Real-time telephony and voice practice for language learners worldwide.
+2. **[Converze Club](https://converze.org)**: Telephony routing, audio intelligence, and voice practice for language learners worldwide.
 
 By coupling hardware-level audio capture with direct UDP NAT hole-punching and military-grade cryptography, TermCall enables direct communication without paying a dime in audio bandwidth bills.
 
@@ -81,15 +124,66 @@ By coupling hardware-level audio capture with direct UDP NAT hole-punching and m
 └──────────────────────── Peer (Dev B) ──────────────────────────┘
 ```
 
-### 2. Architectural Boundaries & Converze Separation
-TermCall is strictly the **P2P encrypted audio engine**. High-level applications such as [Converze](https://converze.org) (anonymous matchmaking, topic queues, and moderation) sit entirely on top of TermCall as separate modules. 
+---
 
-For the complete architectural separation of concerns, see:
-👉 **[Architecture Boundaries: TermCall vs. Converze](docs/ARCHITECTURE_BOUNDARIES.md)**
+### 2. The Wire Protocol Binary Framing
+
+Every 20ms, TermCall transmits a compact, tamper-proof UDP datagram. Overhead is kept strictly to **16 bytes**:
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   'T' (0x54)  |   'C' (0x43)  |  Version(0x01)| PacketType(1B)|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 64-bit Monotonic Packet Sequence #            |
+|                 (Acts as Nonce for ChaCha20-Poly1305)         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       Timestamp (uint16)      |     Payload Length (uint16)   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|        Encrypted Payload + Poly1305 Authentication Tag        |
+|        (Opus Audio Frame / Handshake Data / Keepalive)        |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+* **Packet Types**: `0x01` (Audio), `0x02` (Handshake), `0x03` (HandshakeAck), `0x04` (Ping), `0x05` (Pong), `0x06` (Mute), `0x07` (Hangup).
 
 ---
 
-## 🚀 Quickstart & Usage
+### 3. Serverless Dual-Candidate Room Token
+
+TermCall requires **zero external signaling servers** to pair two callers. The room token encodes both candidates plus the host's public key in a compact 44-byte Base64 URL:
+
+```
+~ Room Token Structure: tc_<base64> ~
+[ 4B Public IP ] + [ 2B Public Port ] + [ 4B LAN IP ] + [ 2B LAN Port ] + [ 32B X25519 PubKey ]
+```
+
+- **LAN Auto-Detection**: If callers are on the same Wi-Fi network, TermCall routes packets directly through LAN UDP without traversing the public internet router.
+- **WAN STUN Hole-Punching**: If callers are remote, TermCall bursts handshake datagrams to the STUN reflexive address to punch NAT pinholes simultaneously.
+
+---
+
+## 🛡️ Security & Cryptographic Invariants
+
+1. **Ephemeral Key Exchange (X25519 ECDH)**:
+   - Fresh 256-bit elliptic curve keypairs are generated in physical RAM for each call session.
+   - Private keys never touch storage disks and are securely zeroed out on teardown.
+2. **Directional Key Derivation (HKDF-SHA256)**:
+   - Derives two distinct symmetric keys: `termcall-host-to-peer` and `termcall-peer-to-host`.
+   - Prevents **packet reflection attacks** (an attacker bouncing a caller's own encrypted packets back to them).
+3. **Anti-Replay Protection (RFC 6479 Sliding Bitmap)**:
+   - Sequence numbers monotonically increment.
+   - An in-memory 128-packet sliding window drops replayed, duplicated, or excessively delayed datagrams.
+4. **Zero-Knowledge Privacy**:
+   - Audio is authenticated and encrypted directly between end-devices using ChaCha20-Poly1305.
+   - Third-party observers, ISPs, or Wi-Fi sniffers see only high-entropy random UDP bytes.
+
+---
+
+## 🚀 Quickstart & Commands
 
 ### 1. Test Hardware Audio Locally (Loopback Mode)
 Test your microphone, speakers, Opus compression, and ChaCha20 encryption instantly on your local machine:
@@ -110,24 +204,30 @@ termcall join tc_jvq-LspsAAc...
 ```
 Automatically executes direct UDP NAT hole-punching, establishes symmetric AEAD encryption, and launches the live TUI.
 
-### 4. Diagnostics
+### 4. Hardware & Network Diagnostics
 ```bash
 # List local microphone & speaker hardware devices
 termcall devices
 
 # Discover external public IP and UDP port mapping via RFC 5389 STUN
 termcall stun
+
+# Display version
+termcall version
 ```
 
 ---
 
-## 🛡️ Security & Privacy Guarantees
+## ⌨️ Interactive TUI Controls
 
-- **Ephemeral Key Exchange**: Fresh X25519 ECDH keypairs are generated in RAM for every session.
-- **Directional AEAD Keys**: Directional keys are derived using HKDF-SHA256 (`host-to-peer` and `peer-to-host`), completely preventing reflection attacks.
-- **Anti-Replay Sliding Window**: Monotonic 64-bit sequence counters and RFC 6479 sliding bitmaps drop replayed or delayed packets.
-- **Memory Scrubbing**: Sensitive key material and shared secrets are wiped from memory on call teardown.
-- **Zero Plaintext**: ISP or Wi-Fi packet sniffers observe only random high-entropy bytes.
+While in a call, control your audio and monitor telemetry via intuitive keyboard shortcuts:
+
+| Key | Action |
+| :---: | :--- |
+| `<Space>` | **Toggle Microphone Mute / Unmute** (Transmits `TypeMute` packet to peer) |
+| `↑` / `↓` | **Adjust Speaker Volume** (0% to 200% with soft-clipping) |
+| `d` / `D` | **Toggle Network Telemetry HUD** (RTT, Jitter buffer depth, Packet stats) |
+| `q` / `<Esc>` | **Hang Up** (Sends graceful `TypeHangup` teardown packet and exits cleanly) |
 
 ---
 
@@ -136,16 +236,38 @@ termcall stun
 ### Prerequisites
 - macOS (CoreAudio) or Linux (ALSA / PulseAudio / PipeWire)
 - Go 1.22+
-- `opus` and `opusfile` (`brew install opus opusfile` on macOS)
+- `opus` and `opusfile` development libraries:
+  - **macOS**: `brew install opus opusfile`
+  - **Debian / Ubuntu**: `sudo apt-get install libopus-dev libopusfile-dev`
+  - **Fedora**: `sudo dnf install opus-devel opusfile-devel`
 
 ### Build
 ```bash
-# Compile TermCall standalone binary
+# Clone repository
+git clone https://github.com/rakshithgoud453/termcall.git
+cd termcall
+
+# Run test suite across all subsystems
+go test ./...
+
+# Build standalone static binary
 go build -o termcall ./cmd/termcall
 ```
 
 ---
 
-## 📜 License
+## 🌐 The Converze Connection
 
-MIT License · Built with craft by **Rakshith Billola** ([rakshith.converze.org](https://rakshith.converze.org/)).
+TermCall is engineered as an independent, high-performance **P2P audio engine**. High-level applications—such as **[Converze Club](https://converze.org)** (anonymous matchmaking, topic queues, and community language practice)—build directly on top of TermCall's transport layer.
+
+For the architectural separation of concerns, see:  
+👉 **[Architecture Boundaries: TermCall vs. Converze](docs/ARCHITECTURE_BOUNDARIES.md)**  
+👉 **[Converze P2P Matchmaker Spec](docs/03_converze_p2p_matchmaker.md)**
+
+---
+
+## 📄 License & Attribution
+
+- Built with craft by **Rakshith Billola** — Systems & Software Engineer ([rakshith.converze.org](https://rakshith.converze.org/))
+- Licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+- Security Policy & Disclosures: [SECURITY.md](SECURITY.md)

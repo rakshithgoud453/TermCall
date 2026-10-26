@@ -47,17 +47,29 @@ func TestHostJoinSessionPair(t *testing.T) {
 	t.Logf("  Joiner connected to: %s", joinSess.PeerEndpoint())
 
 	// 4. Test encrypted audio transmission from Host to Joiner
-	var receivedPayload []byte
+	var (
+		receivedMu      sync.Mutex
+		receivedPayload []byte
+		receivedOnce    sync.Once
+	)
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	// Temporarily hook join transport to capture raw audio packet
 	joinSess.transport.SetHandlers(func(packet *protocol.Packet) {
 		aad := []byte{protocol.MagicByte0, protocol.MagicByte1, protocol.Version1, byte(protocol.TypeAudio)}
-		decrypted, err := joinSess.crypto.Decrypt(packet.Seq, packet.Payload, aad)
+		joinCrypto := joinSess.getCrypto()
+		if joinCrypto == nil {
+			return
+		}
+		decrypted, err := joinCrypto.Decrypt(packet.Seq, packet.Payload, aad)
 		if err == nil {
-			receivedPayload = decrypted
-			wg.Done()
+			receivedOnce.Do(func() {
+				receivedMu.Lock()
+				receivedPayload = decrypted
+				receivedMu.Unlock()
+				wg.Done()
+			})
 		}
 	}, nil, nil)
 
@@ -65,7 +77,11 @@ func TestHostJoinSessionPair(t *testing.T) {
 	sampleOpus := []byte("real-audio-opus-test-data-960-samples")
 	seq := hostSess.transport.NextSeq()
 	aad := []byte{protocol.MagicByte0, protocol.MagicByte1, protocol.Version1, byte(protocol.TypeAudio)}
-	ciphertext := hostSess.crypto.Encrypt(seq, sampleOpus, aad)
+	hostCrypto := hostSess.getCrypto()
+	if hostCrypto == nil {
+		t.Fatalf("host crypto session is nil")
+	}
+	ciphertext := hostCrypto.Encrypt(seq, sampleOpus, aad)
 
 	pkt := &protocol.Packet{
 		Type:    protocol.TypeAudio,
@@ -79,8 +95,12 @@ func TestHostJoinSessionPair(t *testing.T) {
 
 	wg.Wait()
 
-	if !bytes.Equal(receivedPayload, sampleOpus) {
-		t.Fatalf("decrypted audio payload mismatch: got %s, want %s", string(receivedPayload), string(sampleOpus))
+	receivedMu.Lock()
+	got := receivedPayload
+	receivedMu.Unlock()
+
+	if !bytes.Equal(got, sampleOpus) {
+		t.Fatalf("decrypted audio payload mismatch: got %s, want %s", string(got), string(sampleOpus))
 	}
 	t.Logf("✔ Encrypted audio frame successfully transmitted, decrypted, and authenticated!")
 }
