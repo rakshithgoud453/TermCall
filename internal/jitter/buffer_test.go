@@ -79,3 +79,22 @@ func TestJitterBufferReorderAndLoss(t *testing.T) {
 		t.Errorf("expected 1 concealed packet, got %d", stats.PacketsConcealed)
 	}
 }
+
+func TestJitterBufferDynamicDepth(t *testing.T) {
+	jb := NewJitterBuffer(2, 20)
+	if jb.TargetDepth() != 2 {
+		t.Errorf("initial target depth mismatch: got %d, want 2", jb.TargetDepth())
+	}
+
+	// Adjust to 1 frame for LAN
+	jb.SetTargetDepth(1)
+	if jb.TargetDepth() != 1 {
+		t.Errorf("target depth mismatch: got %d, want 1", jb.TargetDepth())
+	}
+
+	// Adjust to 4 frames for WAN high jitter
+	jb.SetTargetDepth(4)
+	if jb.TargetDepth() != 4 {
+		t.Errorf("target depth mismatch: got %d, want 4", jb.TargetDepth())
+	}
+}

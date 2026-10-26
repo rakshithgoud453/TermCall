@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
@@ -48,8 +49,13 @@ var hostCmd = &cobra.Command{
 		}
 		defer sess.HangUp()
 
+		copiedHint := ""
+		if err := clipboard.WriteAll(token); err == nil {
+			copiedHint = " (Copied to clipboard!)"
+		}
+
 		fmt.Println("\n" + "─────────────────────────────────────────────────────────────")
-		fmt.Printf("  ROOM TOKEN:  %s\n", token)
+		fmt.Printf("  ROOM TOKEN:  %s%s\n", token, copiedHint)
 		fmt.Println("─────────────────────────────────────────────────────────────")
 		fmt.Println("  Share this token with your collaborator: termcall join <token>")
 		fmt.Println("  Launching interactive terminal interface...")

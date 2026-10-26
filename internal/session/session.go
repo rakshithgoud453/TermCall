@@ -480,18 +480,59 @@ func (s *Session) Telemetry() (time.Duration, float64, float64, int) {
 		lossRate = float64(stats.PacketsLost) / float64(total)
 	}
 
+	// Dynamic feedback loop: adapt Opus bitrate, FEC, and jitter buffer depth
+	s.adaptNetwork(rtt, lossRate, stats.CurrentJitterMs)
+
 	return rtt, lossRate, stats.CurrentJitterMs, stats.BufferDepthMs
+}
+
+func (s *Session) adaptNetwork(rtt time.Duration, lossRate float64, jitterMs float64) {
+	if s.mode == ModeLoopback {
+		return
+	}
+
+	lossPerc := int(lossRate * 100.0)
+
+	// 1. Bitrate & In-Band FEC adaptation
+	if lossRate > 0.05 || rtt > 150*time.Millisecond {
+		// Degraded WAN connection: drop to 16 kbps, boost FEC
+		_ = s.codec.SetBitrate(16000)
+		_ = s.codec.SetPacketLossPerc(lossPerc)
+	} else if lossRate < 0.01 && rtt < 40*time.Millisecond {
+		// Pristine / LAN connection: scale up to 32 kbps high fidelity
+		_ = s.codec.SetBitrate(32000)
+		_ = s.codec.SetPacketLossPerc(0)
+	} else {
+		// Standard VoIP connection: 24 kbps default
+		_ = s.codec.SetBitrate(24000)
+		_ = s.codec.SetPacketLossPerc(lossPerc)
+	}
+
+	// 2. Dynamic Jitter Buffer depth (LAN vs WAN)
+	// LAN: RTT < 15ms and low jitter -> 1 frame (20ms) for near-instant zero-delay audio
+	// High-jitter WAN: jitter > 25ms or loss > 4% -> 3 frames (60ms)
+	// Normal: 2 frames (40ms)
+	if rtt > 0 && rtt < 15*time.Millisecond && jitterMs < 5.0 && lossRate < 0.01 {
+		s.jitterBuffer.SetTargetDepth(1)
+	} else if jitterMs > 25.0 || lossRate > 0.04 || rtt > 120*time.Millisecond {
+		s.jitterBuffer.SetTargetDepth(3)
+	} else {
+		s.jitterBuffer.SetTargetDepth(2)
+	}
 }
 
 func (s *Session) DebugInfo() string {
 	if s.transport == nil {
 		return fmt.Sprintf("Loopback | Buffer: %dms", s.jitterBuffer.Stats().BufferDepthMs)
 	}
-	return fmt.Sprintf("Tx: %d pkts | Rx: %d pkts | Local: %s | Remote: %s",
+	return fmt.Sprintf("Tx: %d pkts | Rx: %d pkts | %s | Opus: %dkbps (FEC %d%%) | JB: %dframes (%dms)",
 		s.transport.PacketsSent(),
 		s.transport.PacketsReceived(),
-		s.transport.LocalAddr().String(),
 		s.PeerEndpoint(),
+		s.codec.Bitrate()/1000,
+		s.codec.PacketLossPerc(),
+		s.jitterBuffer.TargetDepth(),
+		s.jitterBuffer.Stats().BufferDepthMs,
 	)
 }
 

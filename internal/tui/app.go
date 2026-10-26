@@ -243,12 +243,12 @@ func (m Model) View() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(themeGray).Render("  DEBUG: " + m.state.DebugInfo()) + "\n")
 	}
 
-	// Status Notification line
+	// Status Notification line / Echo Advice Banner
 	b.WriteString("\n")
 	if time.Since(m.statusTime) < 3*time.Second && m.statusMsg != "" {
 		b.WriteString("  " + lipgloss.NewStyle().Foreground(themeCyan).Bold(true).Render("★ "+m.statusMsg) + "\n")
 	} else {
-		b.WriteString("\n")
+		b.WriteString("  " + lipgloss.NewStyle().Foreground(themeGray).Render("🎧 Tip: Use headphones for optimal, echo-free conversation.") + "\n")
 	}
 
 	// Hotkey Navigation Footer

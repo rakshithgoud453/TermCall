@@ -159,6 +159,25 @@ func (jb *JitterBuffer) Stats() Stats {
 	return jb.stats
 }
 
+// SetTargetDepth dynamically adjusts the target buffer depth (in frames)
+func (jb *JitterBuffer) SetTargetDepth(depth int) {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+	if depth < 1 {
+		depth = 1
+	} else if depth > jb.maxCapacity/2 {
+		depth = jb.maxCapacity / 2
+	}
+	jb.targetDepth = depth
+}
+
+// TargetDepth returns the current target depth in frames
+func (jb *JitterBuffer) TargetDepth() int {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+	return jb.targetDepth
+}
+
 // Reset clears the buffer
 func (jb *JitterBuffer) Reset() {
 	jb.mu.Lock()

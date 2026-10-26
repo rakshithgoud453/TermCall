@@ -53,4 +53,26 @@ func TestOpusEncodeDecodeAndPLC(t *testing.T) {
 	if len(plcDecoded) != FrameSize {
 		t.Fatalf("PLC decoded pcm size mismatch: got %d, want %d", len(plcDecoded), FrameSize)
 	}
+
+	// Test dynamic bitrate adjustment
+	if err := c.SetBitrate(16000); err != nil {
+		t.Fatalf("failed to set 16kbps bitrate: %v", err)
+	}
+	if c.Bitrate() != 16000 {
+		t.Errorf("bitrate mismatch: got %d, want 16000", c.Bitrate())
+	}
+	if err := c.SetBitrate(32000); err != nil {
+		t.Fatalf("failed to set 32kbps bitrate: %v", err)
+	}
+	if c.Bitrate() != 32000 {
+		t.Errorf("bitrate mismatch: got %d, want 32000", c.Bitrate())
+	}
+
+	// Test dynamic FEC packet loss percentage
+	if err := c.SetPacketLossPerc(15); err != nil {
+		t.Fatalf("failed to set FEC packet loss: %v", err)
+	}
+	if c.PacketLossPerc() != 15 {
+		t.Errorf("packet loss perc mismatch: got %d, want 15", c.PacketLossPerc())
+	}
 }
