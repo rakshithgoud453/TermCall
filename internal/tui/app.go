@@ -33,6 +33,9 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+// Version is dynamically displayed in the TUI header
+var Version = "0.2.0"
+
 // Model is the Bubble Tea TUI state
 type Model struct {
 	state       SessionState
@@ -182,7 +185,7 @@ func (m Model) View() string {
 	var b strings.Builder
 
 	// Header Banner
-	headerTitle := "TERMCALL v0.1.0 · P2P ENCRYPTED AUDIO LINK"
+	headerTitle := fmt.Sprintf("TERMCALL v%s · P2P ENCRYPTED AUDIO LINK", Version)
 	b.WriteString(titleStyle.Render("  " + headerTitle))
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(themeDim).Render(strings.Repeat("─", 74)))

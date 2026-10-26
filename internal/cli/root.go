@@ -15,7 +15,7 @@ import (
 	"github.com/rakshithgoud453/termcall/internal/tui"
 )
 
-var Version = "0.1.0"
+var Version = "0.2.0"
 
 // RootCmd represents the base command
 var RootCmd = &cobra.Command{
@@ -28,6 +28,7 @@ X25519 ECDH key exchange, ChaCha20-Poly1305 AEAD, and Opus 48kHz compression.`,
 }
 
 func init() {
+	tui.Version = Version
 	RootCmd.AddCommand(hostCmd)
 	RootCmd.AddCommand(joinCmd)
 	RootCmd.AddCommand(loopbackCmd)
