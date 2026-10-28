@@ -552,6 +552,12 @@ func (s *Session) DebugInfo() string {
 	)
 }
 
+func (s *Session) SetOnHangup(fn func()) {
+	s.hangupMu.Lock()
+	defer s.hangupMu.Unlock()
+	s.onHangup = fn
+}
+
 func (s *Session) HangUp() {
 	s.hangupMu.Lock()
 	defer s.hangupMu.Unlock()
